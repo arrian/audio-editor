@@ -1,0 +1,20 @@
+README audioedit
+
+Written by Arrian Purcell
+
+Copyright Arrian Purcell 2012
+
+Summary
+Audioedit has the ability to remove samples from the beginning and the end of wav files.
+
+Compiling
+To compile, simply run gcc with main.c: 'gcc main.c'.
+
+Testing Methods
+Various methods were used for complete testing. These included, the use of good data and a number of different sample sizes to remove. Non-wav files were also used, including malformed wav files. Various bad command line arguments were also entered..
+
+Extensions
+Audioedit also has the ability to edit ogg files and mp3 files while also having the ability to repair bad wav files.
+
+Limitations
+
