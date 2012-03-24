@@ -5,7 +5,7 @@
 #include <stdio.h>
 
 #define AUTHOR "Arrian Purcell u5015666"
-#define VERSION "0.4"
+#define VERSION "0.5"
 
 #define BYTE 8
 
@@ -25,6 +25,11 @@ typedef struct
   unsigned char headerData[44];
   unsigned char *audioData;
   unsigned long audioDataLength;
+  
+  int *chunkSize;
+  int *subchunk2Size;
+  short *blockAlign;
+  
 } Header;
 
 /*Structure for the data for an edit.*/
@@ -36,12 +41,14 @@ typedef struct
 
 } Edit;
 
-int terminate(char message[])
+/*Terminates the program, printing out a message.*/
+void terminate(char message[])
 {
   printf("TERMINATED: %s\n", message);
   exit(-1);
 }
 
+/*Returns an error integer, printing out a message.*/
 int error(char message[])
 {
   printf("ERROR: %s\n", message);
@@ -63,30 +70,37 @@ unsigned long fileLength(FILE *input)
   return fileLength;
 }
 
+/*Loads audio file header.*/
 int loadHeader(Header *header, FILE *input)
 {
   if(header && header->input && input)
   {
     fread(&(header->headerData), HEADER_LENGTH, 1, input);
     header->audioDataLength = fileLength(input) - HEADER_LENGTH;
+    if(header->audioDataLength < 0) terminate("The input file is not a well-formed wav file.");
+    
+    header->chunkSize = (int*) &(header->headerData[CHUNK_SIZE_OFFSET]);
+    header->subchunk2Size = (int*) &(header->headerData[SUBCHUNK_2_SIZE_OFFSET]);
+    header->blockAlign = (short*) &(header->headerData[BLOCK_ALIGN_OFFSET]);
+    
     return 1;
   }
   return error("Could not load audio header.");
 }
 
+/*Loads audio file sound data.*/
 int loadData(Header *header, FILE *input, Edit *edit)
 {
   if(header && input && header->audioDataLength)
   {
-	header->audioDataLength -= edit->tb;
-	header->audioDataLength -= edit->te;
+    header->audioDataLength -= edit->tb;
+    header->audioDataLength -= edit->te;
+    header->audioData = (unsigned char *)malloc(header->audioDataLength + 1);
 
-	header->audioData = (unsigned char *)malloc(header->audioDataLength + 1);
-
-	if(!header->audioData) return error("Could not allocate memory for audio data.");
-
-    fread(header->audioData, fileLength(input) - HEADER_LENGTH - edit->te, 1, input + edit->tb);
-
+    if(!header->audioData) return error("Could not allocate memory for audio data.");
+printf("seg fault here\n");
+    fread(header->audioData, sizeof(unsigned char), header->audioDataLength, input + edit->tb);
+printf("success");
     return 1;
   }
   return error("Could not load audio data.");
@@ -104,24 +118,8 @@ int loadAudio(Header *header, Edit *edit)
   return 1;
 }
 
-/*Changes a section of the buffer to the little endian representation of the given data.*/
-void setHeaderLittleEndian(Header *header, unsigned int offset, unsigned int length, int data)
-{
-  int i;
-  for(i = 0; i < length; i++) header->headerData[offset + i] = (data >> (i * BYTE)) & 0xFF;
-}
-
-/*Converts the specified section of the buffer from little endian representation to an integer.*/
-int fromHeaderLittleEndian(Header *header, unsigned int offset, unsigned int length)
-{
-  int i;
-  int value = 0;
-  for(i = 0; i < length; i++) value = value | (header->headerData[i + offset] << (i * BYTE));
-  return value;
-}
-
 /*Check if data exists in the buffer*/
-int headerStringExists(Header *header, char *data, unsigned int offset)
+int headerStringExists(Header *header, char data[], unsigned int offset)
 {
   int iter = 0;
   int length = strlen(data);
@@ -129,16 +127,16 @@ int headerStringExists(Header *header, char *data, unsigned int offset)
   return 1;
 }
 
-/*Checks if the buffer data is a well formed wav file.*/
+/*Checks if the header appears to be from a well formed wav file.*/
 int isWav(Header *header)
 {
   return headerStringExists(header, "RIFF", 0) &&
-		 headerStringExists(header, "WAVE", 8) &&
-		 headerStringExists(header, "fmt ", 12) &&
-		 headerStringExists(header, "data", 36);
+         headerStringExists(header, "WAVE", 8) &&
+         headerStringExists(header, "fmt ", 12) &&
+         headerStringExists(header, "data", 36);
 }
 
-/*Saves the buffer to a file.*/
+/*Saves the header and selected audio data to a file.*/
 int saveAudio(Header *header, Edit *edit)
 {
   if(header && edit)
@@ -146,10 +144,10 @@ int saveAudio(Header *header, Edit *edit)
     FILE *output = fopen(edit->output, "wb");
     if(!output) return 0;
 
-    /*Ensuring synthetic size is correct.*/
-    setHeaderLittleEndian(header, CHUNK_SIZE_OFFSET, SIZE_LENGTH, (HEADER_LENGTH + header->audioDataLength - CHUNK_SIZE_OFFSET) - SIZE_LENGTH);
-    setHeaderLittleEndian(header, SUBCHUNK_2_SIZE_OFFSET, SIZE_LENGTH, (HEADER_LENGTH + header->audioDataLength - SUBCHUNK_2_SIZE_OFFSET) - SIZE_LENGTH);
-
+    /*Ensuring synthetic sizes are correct.*/
+    *(header->chunkSize) = (HEADER_LENGTH + header->audioDataLength - CHUNK_SIZE_OFFSET) - SIZE_LENGTH;
+    *(header->subchunk2Size) = (HEADER_LENGTH + header->audioDataLength - SUBCHUNK_2_SIZE_OFFSET) - SIZE_LENGTH;
+    
     fwrite(&(header->headerData), 1, HEADER_LENGTH, output);
     fwrite(header->audioData, 1, header->audioDataLength, output);
     fclose(output);
@@ -165,32 +163,35 @@ void dump(Header *header)
   if(header && header->input && header->headerData)
   {
     printf("-----------%s Header----------\n", header->input);
+    printf("Chunk Size: %d \nSubchunk 2 Size: %d \nBlock Align: %d\n", *header->chunkSize, *header->subchunk2Size, *header->blockAlign);
     for(i = 0; i < HEADER_LENGTH; i++) printf("%x ", header->headerData[i]);
     printf("\n-------------------------------------\n");
   }
 }
 
+/*Performs an edit if the edit is acceptable.*/
 int performEdit(Header *header, Edit* edit, int verbose)
 {
   if(!header->input) return error("Please specify an input file.\nType 'audioedit -help' for all options.");
-
+  
   if(!loadAudio(header, edit)) return error("Could not load audio file.");
-
+  
   if(header->audioDataLength < 1) return error("Input file does not contain any audio data to edit.");
-
+  
   if(isWav(header)) printf("Input file is OK.\n");
   else return error("Input is not a well formed WAVE file.");
-
+  
   if(verbose) dump(header);
-
+  
   if(!edit->output) return 0;
-
+  
   if(saveAudio(header, edit)) printf("New audio saved as '%s'.\n", edit->output);
   else return error("Could not save audio.");
-
+  
   return 1;
 }
 
+/*Program that edits an audio file, cutting off samples from the beginning and end.*/
 int main(int argc, char *argv[])
 {
   Header header;
@@ -201,7 +202,12 @@ int main(int argc, char *argv[])
   
   edit.tb = 0;
   edit.te = 0;
-
+  edit.output = 0;
+  
+  header.chunkSize = 0;
+  header.subchunk2Size = 0;
+  header.blockAlign = 0;
+  
   if(argc <= 1)
   {
     printf("%s: missing operand\nTry '%s -help' for more information.\n", argv[0], argv[0]);
