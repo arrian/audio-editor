@@ -28,10 +28,10 @@ typedef struct
 
   /*fmt chunk*/
   unsigned char *fmt;
-  int *fmtLength;
-  int *fmtCompression;
-  int *fmtChannels;
-  short *fmtBlockAlign;
+  unsigned int *fmtLength;
+  unsigned short *fmtCompression;
+  unsigned short *fmtChannels;
+  unsigned short *fmtBlockAlign;
   
   /*data chunk*/
   unsigned char *data;
@@ -45,6 +45,8 @@ typedef struct
   char *output;
   int tb;
   int te;
+  
+  int reverse;
 } Edit;
 
 int terminate(char message[]);
@@ -56,6 +58,8 @@ int stringExists(Audio *audio, char data[], unsigned int offset);
 unsigned long audioLength(FILE *input);
 
 void scanChunks(Audio *audio);
+
+void reverseAudio(Audio *audio);
 
 void loadAudio(Audio *audio);
 

@@ -46,7 +46,7 @@ unsigned long audioLength(FILE *input)
 /*Scans the file for required chunks.*/
 void scanChunks(Audio *audio)
 {
-  int i = FIRST_CHUNK;
+  unsigned int i = FIRST_CHUNK;
   int j;
   
   assert(audio);
@@ -62,23 +62,23 @@ void scanChunks(Audio *audio)
     if(stringExists(audio,"fmt ", i))
     {
       audio->fmt = audio->buffer + i;
-      audio->fmtLength = (int *) (audio->buffer + i + CHUNK_DESCRIPTOR_LENGTH);
-      audio->fmtCompression = (int *) (audio->buffer + FMT_COMPRESSION);
-      audio->fmtChannels = (int *) (audio->buffer + FMT_CHANNELS);
-      audio->fmtBlockAlign = (short *) (audio->buffer + FMT_BLOCK_ALIGN);
+      audio->fmtLength = (unsigned int *) (audio->buffer + i + CHUNK_DESCRIPTOR_LENGTH);
+      audio->fmtCompression = (unsigned short *) (audio->buffer + i + FMT_COMPRESSION);
+      audio->fmtChannels = (unsigned short *) (audio->buffer + i + FMT_CHANNELS);
+      audio->fmtBlockAlign = (unsigned short *) (audio->buffer + i + FMT_BLOCK_ALIGN);
     }
     else if(stringExists(audio,"data", i))
     {
       audio->data = audio->buffer + i;
-      audio->dataLength = (int *) (audio->buffer + i + CHUNK_DESCRIPTOR_LENGTH);
+      audio->dataLength = (unsigned int *) (audio->buffer + i + CHUNK_DESCRIPTOR_LENGTH);
     }
     else
     {
-      printf("NOTE: Unhandled chunk ");
+      printf("NOTE: Unhandled chunk '");
       for(j = 0; j < CHUNK_DESCRIPTOR_LENGTH; j++) printf("%c", *(audio->buffer + j + i));
-      printf("\n");
+      printf("'\n");
     }
-    i += *((int *) (audio->buffer + i + CHUNK_DESCRIPTOR_LENGTH)) + CHUNK_DESCRIPTOR_LENGTH + CHUNK_SIZE_LENGTH;
+    i += *((unsigned int *) (audio->buffer + i + CHUNK_DESCRIPTOR_LENGTH)) + CHUNK_DESCRIPTOR_LENGTH + CHUNK_SIZE_LENGTH;
     i = wordAlign(i);/*as required by the RIFF specification.*/
   }
 }
@@ -92,8 +92,9 @@ void loadAudio(Audio *audio)
 
   audio->bufferLength = audioLength(input);
   audio->buffer = (unsigned char *) malloc(audio->bufferLength + 1);
+  if(!audio->buffer) terminate("Could not allocate enough memory for the input file.");
   if(!fread(audio->buffer, audio->bufferLength, sizeof(unsigned char), input)) terminate("Unable to read input file.");
-  
+
   fclose(input);
   
   scanChunks(audio);
@@ -101,7 +102,29 @@ void loadAudio(Audio *audio)
   if(!audio->data) terminate("Input file does not contain a data chunk.");
   if(!audio->fmt) terminate("Input file does not contain a fmt chunk.");
   
-  if(*(audio->fmtLength) != 16) printf("NOTE: Input is not a PCM WAVE file.\n");
+  if((*audio->fmtCompression) != 1) printf("NOTE: Input is not a PCM WAVE file.\n");//also if fmtLength != 16
+}
+
+/*Extension - reverse audio*/
+void reverseAudio(Audio *audio)
+{
+  assert(audio);
+
+  int forwards = CHUNK_DESCRIPTOR_LENGTH + CHUNK_SIZE_LENGTH;
+  int backwards = *audio->dataLength;
+  unsigned char temp;
+
+  printf("Reversing...\n");
+  
+  while(forwards < backwards)
+  {
+    temp = *(audio->data + backwards);
+    *(audio->data + backwards) = *(audio->data + forwards);
+    *(audio->data + forwards) = temp;
+    
+    backwards--;
+    forwards++;
+  }
 }
 
 void saveAudio(Audio *audio, Edit *edit)
@@ -132,6 +155,7 @@ void saveAudio(Audio *audio, Edit *edit)
   writeCount += fwrite(audio->data + CHUNK_DESCRIPTOR_LENGTH + CHUNK_SIZE_LENGTH + tbLength, sizeof(unsigned char), *(audio->dataLength), output);
   
   /*Writing post data chunk buffer.*/
+  printf("NOTE: Chunks after data chunk not written to file.\n");
   //writeCount += fwrite(audio->data + CHUNK_DESCRIPTOR_LENGTH + CHUNK_SIZE_LENGTH + oldDataLength, sizeof(unsigned char), audio->bufferLength - ((audio->data - audio->buffer) + CHUNK_DESCRIPTOR_LENGTH + CHUNK_SIZE_LENGTH + oldDataLength), output);
   
   if(!writeCount) terminate("Could not write data to output file.");
@@ -144,6 +168,7 @@ void performEdit(Audio *audio, Edit *edit)
   loadAudio(audio);
   printf("'%s' is OK.\n", audio->input);
   if(!edit->output) return;
+  if(edit->reverse) reverseAudio(audio);
   saveAudio(audio, edit);
   printf("Saved new audio as '%s'.\n", edit->output);
 }

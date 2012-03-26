@@ -34,6 +34,7 @@ int main(int argc, char *argv[])
       return 0;
     }
     else if(!strcmp(argv[i], "-header")) showHeader = 1;
+    else if(!strcmp(argv[i], "-reverse")) edit.reverse = 1;
     else if(i + 1 < argc)
     {
       if(!strcmp(argv[i], "-i")) audio.input = argv[i + 1];

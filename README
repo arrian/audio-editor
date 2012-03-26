@@ -3,7 +3,7 @@ README audioedit
 Copyright Arrian Purcell u501666 2012
 
 Summary
-Audioedit has the ability to remove samples from the beginning and the end of wav files.
+Audioedit is an audio editing program capable of removing samples from the beginning and the end of wav files.
 
 Compiling
 To compile, simply run gcc with the included source files: 'gcc -o audioedit audioedit.c audio.c'.
@@ -13,12 +13,16 @@ Various methods were used for testing.
   1. Unit tests were written for each function.
   2. A test script with a dataset was created and run on the application (including both good and bad input data).
   3. The test script was used for regression testing.
-Test scripts are available in the ./tests folder. Datasets are available by request.
 
 Extensions
-Audioedit has accounted for many parts of the WAVE file specification. 
+Audioedit has accounted for a number of chunk types defined by the WAVE file specification. 
 It supports unknown chunk types and unconventional chunk arrangements (eg. fmt following data).
 Multiple channel support is also included.
+Finally, an audio reverse feature has been added.
 
 Limitations
 Audioedit is unable to handle WAVE files with malformed/incorrect data chunk sizes.
+Additionally, audioedit is unable handle large files, since the entire file is loaded into memory.
+The maximum editable file size is defined by the memory available to heap allocation.
+
+
