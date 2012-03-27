@@ -7,23 +7,10 @@ int terminate(char message[])
   exit(EXIT_FAILURE);
 }
 
-/* Checks if the given offset is word aligned.
- * Returns the offset as a word aligned value (multiple of 2).
- * RIFF file chunks must be word aligned, 
- * but word alignment padding not counted in chunk size.
- */
-int wordAlign(int offset)
-{
-  if(offset % 2 == 0) return offset;
-  return offset + 1;
-}
-
-/*Check if data exists in the buffer*/
-int stringExists(Audio *audio, char data[], unsigned int offset)
+int isChunk(Chunk *chunk, char label[])
 {
   int i = 0;
-  int length = strlen(data);
-  for(; i < length; i++) if(*(audio->buffer + i + offset) != data[i]) return 0;
+  for(; i < CHUNK_DESCRIPTOR_LENGTH; i++) if(chunk->label[i] != label[i]) return 0;
   return 1;
 }
 
@@ -46,41 +33,35 @@ unsigned long audioLength(FILE *input)
 /*Scans the file for required chunks.*/
 void scanChunks(Audio *audio)
 {
-  unsigned int i = FIRST_CHUNK;
-  int j;
+  audio->riff = (Chunk *) audio->buffer;
+  unsigned char *riffData = (unsigned char *) &(audio->riff->data);
+  Chunk *chunkIter = (Chunk *) (riffData + CHUNK_DESCRIPTOR_LENGTH);//adding CDL to skip WAVE label
   
   assert(audio);
   
-  if(!stringExists(audio, "RIFF", 0) || 
-     !stringExists(audio, "WAVE", CHUNK_DESCRIPTOR_LENGTH + CHUNK_SIZE_LENGTH))
-  {     
-    terminate("Input file is not a WAVE audio file.");
-  }
+  if(!isChunk(audio->riff, "RIFF")) terminate("Input file is not a WAVE audio file.");//should also check WAVE label
   
-  while(i < audio->bufferLength)
+  while((unsigned char *)&chunkIter->data < (unsigned char *)(audio->buffer + audio->bufferLength))
   {
-    if(stringExists(audio,"fmt ", i))
+    if(isChunk(chunkIter, "fmt "))
     {
-      audio->fmt = audio->buffer + i;
-      audio->fmtLength = (unsigned int *) (audio->buffer + i + CHUNK_DESCRIPTOR_LENGTH);
-      audio->fmtCompression = (unsigned short *) (audio->buffer + i + FMT_COMPRESSION);
-      audio->fmtChannels = (unsigned short *) (audio->buffer + i + FMT_CHANNELS);
-      audio->fmtBlockAlign = (unsigned short *) (audio->buffer + i + FMT_BLOCK_ALIGN);
+      audio->fmtHeader = chunkIter;
+      audio->fmt = (FmtChunk *) &audio->fmtHeader->data;
     }
-    else if(stringExists(audio,"data", i))
-    {
-      audio->data = audio->buffer + i;
-      audio->dataLength = (unsigned int *) (audio->buffer + i + CHUNK_DESCRIPTOR_LENGTH);
-    }
-    else
-    {
-      printf("NOTE: Unhandled chunk '");
-      for(j = 0; j < CHUNK_DESCRIPTOR_LENGTH; j++) printf("%c", *(audio->buffer + j + i));
-      printf("'\n");
-    }
-    i += *((unsigned int *) (audio->buffer + i + CHUNK_DESCRIPTOR_LENGTH)) + CHUNK_DESCRIPTOR_LENGTH + CHUNK_SIZE_LENGTH;
-    i = wordAlign(i);/*as required by the RIFF specification.*/
+    else if(isChunk(chunkIter, "data")) audio->data = chunkIter;
+    else printf("WARNING: Unhandled chunk '%.*s'\n", CHUNK_DESCRIPTOR_LENGTH, chunkIter->label);
+    
+    if(chunkIter->size <= 0) terminate("Unusual chunk size.");
+    
+    unsigned char *dataStart = (unsigned char *) &chunkIter->data;
+    unsigned int size = chunkIter->size;
+    
+    chunkIter = (Chunk *) (dataStart + size);
   }
+
+  if(!audio->data) terminate("Input file does not contain a data chunk.");
+  if(!audio->fmt) terminate("Input file does not contain a fmt chunk.");
+  if((audio->fmt->compression) != 1) printf("WARNING: Input is not a PCM WAVE file. Editing features may not work as expected.\n");
 }
 
 void loadAudio(Audio *audio)
@@ -99,77 +80,74 @@ void loadAudio(Audio *audio)
   
   scanChunks(audio);
   
-  if(!audio->data) terminate("Input file does not contain a data chunk.");
-  if(!audio->fmt) terminate("Input file does not contain a fmt chunk.");
-  
-  if((*audio->fmtCompression) != 1) printf("NOTE: Input is not a PCM WAVE file.\n");//also if fmtLength != 16
+  printf("'%s' is OK.\n", audio->input);
 }
 
 /*Extension - reverse audio*/
 void reverseAudio(Audio *audio)
 {
+  int forwards = 0;
+  int backwards = audio->data->size;
+  unsigned char temp;
+  
   assert(audio);
 
-  int forwards = CHUNK_DESCRIPTOR_LENGTH + CHUNK_SIZE_LENGTH;
-  int backwards = *audio->dataLength;
-  unsigned char temp;
-
-  printf("Reversing...\n");
+  printf("Reversing audio...\n");
   
   while(forwards < backwards)
   {
-    temp = *(audio->data + backwards);
-    *(audio->data + backwards) = *(audio->data + forwards);
-    *(audio->data + forwards) = temp;
+    temp = *(audio->data->data + backwards);
+    *(audio->data->data + backwards) = *(audio->data->data + forwards);
+    *(audio->data->data + forwards) = temp;
     
     backwards--;
     forwards++;
   }
 }
 
-void saveAudio(Audio *audio, Edit *edit)
+void trimAudio(Audio *audio, Edit *edit)
 {
-  assert(audio && edit);
-  
-  int oldDataLength = (*(audio->dataLength));
-  
-  int writeCount = 0;
-  
-  FILE *output = fopen(edit->output, "wb");
-  if(!output) terminate("Unable to create or overwrite output file.");
-  
   /*Multiplying by block align to handle removing data from multiple channels.*/
-  int tbLength = edit->tb * (*(audio->fmtBlockAlign));
-  int teLength = edit->te * (*(audio->fmtBlockAlign));
-  int total = tbLength + teLength;
-  if(total > (*audio->dataLength)) terminate("Too many samples were specified.");
+  unsigned int tbLength = edit->tb * audio->fmt->blockAlign;
+  unsigned int teLength = edit->te * audio->fmt->blockAlign;
+  unsigned int removed = tbLength + teLength;
+  int total = audio->data->size - removed;
+
+  if(total <= 0) terminate("Too many samples were specified.");
+  
+  memcpy((unsigned char *)&audio->data->data, (unsigned char *)&audio->data->data + tbLength, total);
+  memcpy((unsigned char *)&audio->data->data + total, (unsigned char *)&audio->data->data + total, (audio->buffer + audio->bufferLength) - ((unsigned char *)&audio->data->data + total));
   
   /*Ensuring synthetic chunk sizes are correct.*/
-  *((int *) (audio->buffer + CHUNK_DESCRIPTOR_LENGTH)) = ((audio->bufferLength - total) - CHUNK_DESCRIPTOR_LENGTH) - CHUNK_SIZE_LENGTH;
-  *(audio->dataLength) -= total;
+  audio->riff->size -= removed;
+  audio->data->size -= removed;
+  audio->bufferLength -= removed;
+}
+
+void saveAudio(Audio *audio, Edit *edit)
+{
+  int writeCount;
+  FILE *output;
   
-  /*Writing first section of buffer up to data chunk.*/
-  writeCount += fwrite(audio->buffer, sizeof(unsigned char), (audio->data - audio->buffer) + CHUNK_DESCRIPTOR_LENGTH + CHUNK_SIZE_LENGTH, output);
+  assert(audio && edit);
   
-  /*Writing data chunk.*/
-  writeCount += fwrite(audio->data + CHUNK_DESCRIPTOR_LENGTH + CHUNK_SIZE_LENGTH + tbLength, sizeof(unsigned char), *(audio->dataLength), output);
+  output = fopen(edit->output, "wb");
+  if(!output) terminate("Unable to create or overwrite output file.");
   
-  /*Writing post data chunk buffer.*/
-  printf("NOTE: Chunks after data chunk not written to file.\n");
-  //writeCount += fwrite(audio->data + CHUNK_DESCRIPTOR_LENGTH + CHUNK_SIZE_LENGTH + oldDataLength, sizeof(unsigned char), audio->bufferLength - ((audio->data - audio->buffer) + CHUNK_DESCRIPTOR_LENGTH + CHUNK_SIZE_LENGTH + oldDataLength), output);
-  
+  writeCount = fwrite(audio->buffer, sizeof(unsigned char), audio->bufferLength, output);
   if(!writeCount) terminate("Could not write data to output file.");
   
   fclose(output);
+  
+  printf("Saved new audio as '%s'.\n", edit->output);
 }
 
 void performEdit(Audio *audio, Edit *edit)
 {
   loadAudio(audio);
-  printf("'%s' is OK.\n", audio->input);
   if(!edit->output) return;
+  trimAudio(audio, edit);
   if(edit->reverse) reverseAudio(audio);
   saveAudio(audio, edit);
-  printf("Saved new audio as '%s'.\n", edit->output);
 }
 

@@ -9,14 +9,24 @@
 
 /*Lengths*/
 #define CHUNK_DESCRIPTOR_LENGTH 4 /*Length of the chunk descriptor*/
-#define CHUNK_SIZE_LENGTH 4 /*Length of the value representing the length of the chunk*/
 
-/*Offsets*/
-#define FIRST_CHUNK 12
+/*Generic riff chunk.*/
+typedef struct
+{
+  char label[CHUNK_DESCRIPTOR_LENGTH];
+  unsigned int size;
+  unsigned char *data;
+} Chunk;
 
-#define FMT_COMPRESSION 8
-#define FMT_CHANNELS 10
-#define FMT_BLOCK_ALIGN 20
+/*WAVE format chunk*/
+typedef struct
+{
+  unsigned short compression;
+  unsigned short channels;
+  unsigned int sampleRate;
+  unsigned int bytesPerSecond;
+  unsigned short blockAlign;
+} FmtChunk;
 
 /*Audio file data.*/
 typedef struct
@@ -26,17 +36,10 @@ typedef struct
   unsigned char *buffer;
   int bufferLength;
 
-  /*fmt chunk*/
-  unsigned char *fmt;
-  unsigned int *fmtLength;
-  unsigned short *fmtCompression;
-  unsigned short *fmtChannels;
-  unsigned short *fmtBlockAlign;
-  
-  /*data chunk*/
-  unsigned char *data;
-  int *dataLength;
- 
+  Chunk *riff;
+  Chunk *fmtHeader;
+  FmtChunk *fmt;
+  Chunk *data;
 } Audio;
 
 /*Edit data.*/
@@ -49,9 +52,9 @@ typedef struct
   int reverse;
 } Edit;
 
-int terminate(char message[]);
 
-int wordAlign(int offset);
+
+int terminate(char message[]);
 
 int stringExists(Audio *audio, char data[], unsigned int offset);
 
