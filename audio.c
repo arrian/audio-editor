@@ -105,8 +105,8 @@ void amplifyAudio(Audio *audio, Edit *edit)
   int samples;
   int i = 0;
   int new;
-  int max;
-  int min;
+  int max = INT16_MAX;
+  int min = INT16_MIN;
   int16_t *start;
   
   assert(audio && edit);
@@ -128,8 +128,8 @@ void amplifyAudio(Audio *audio, Edit *edit)
   while(i < samples)
   {
     new = (int) (*(start + i) * edit->amplification);
-    if(new > INT16_MAX) *(start + i) = INT16_MAX;
-    else if(new < INT16_MIN) *(start + i) = INT16_MIN;
+    if(new > max) *(start + i) = max;
+    else if(new < min) *(start + i) = min;
     else *(start + i) = new;
     i++;
   }

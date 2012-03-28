@@ -40,11 +40,17 @@ Various methods were used for testing.
   3. The test script was used for regression testing.
 
 Extensions
-Audioedit has accounted for a number of chunk types defined by the WAVE file specification. 
-It supports unknown chunk types and unconventional chunk arrangements (eg. fmt following data).
+Audioedit has accounted for unknown chunk types and unconventional chunk 
+arrangements (eg. fmt following data) allowing for non-canononical WAVE 
+editing.
 Multiple channels are accounted for in sample trimming.
 An audio reverse feature has been added (eg. ./audioedit -i in.wav -o out.wav -r).
 Finally, and audio amplification feature has been added (eg. ./audioedit -i in.wav -o out.wav -a 3.0).
+These extensions demonstrate a good understanding of the concepts of pointers, 
+data representation, the C language and the RIFF WAVE format. The program is
+reasonably robust and demonstrates the simplicity of adding more methods to 
+increase functionality within the current framework (both reverse and amplify
+are resonably simple and self contained).
 
 Limitations
 Audioedit is unable to handle WAVE files with malformed/incorrect data chunk sizes.
