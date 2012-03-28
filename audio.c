@@ -1,6 +1,5 @@
 #include "audio.h"
 
-/*Terminates the program, printing out the given message.*/
 int terminate(char message[])
 {
   printf("ERROR: %s\n", message);
@@ -14,9 +13,6 @@ int isChunk(Chunk *chunk, char label[])
   return 1;
 }
 
-/* Returns the length of the given audio file. 
- * Requires an open file.
- */
 unsigned long audioLength(FILE *input)
 {
   unsigned long audioLength = 0;
@@ -30,18 +26,17 @@ unsigned long audioLength(FILE *input)
   return audioLength;
 }
 
-/*Scans the file for required chunks.*/
 void scanChunks(Audio *audio)
 {
   audio->riff = (Chunk *) audio->buffer;
-  unsigned char *riffData = (unsigned char *) &(audio->riff->data);
+  char *riffData = (char *) &(audio->riff->data);
   Chunk *chunkIter = (Chunk *) (riffData + CHUNK_DESCRIPTOR_LENGTH);//adding CDL to skip WAVE label
   
   assert(audio);
   
   if(!isChunk(audio->riff, "RIFF")) terminate("Input file is not a WAVE audio file.");//should also check WAVE label
   
-  while((unsigned char *)&chunkIter->data < (unsigned char *)(audio->buffer + audio->bufferLength))
+  while((char *)&chunkIter->data < (char *)(audio->buffer + audio->bufferLength))
   {
     if(isChunk(chunkIter, "fmt "))
     {
@@ -53,7 +48,7 @@ void scanChunks(Audio *audio)
     
     if(chunkIter->size <= 0) terminate("Unusual chunk size.");
     
-    unsigned char *dataStart = (unsigned char *) &chunkIter->data;
+    char *dataStart = (char *) &chunkIter->data;
     unsigned int size = chunkIter->size;
     
     chunkIter = (Chunk *) (dataStart + size);
@@ -61,7 +56,7 @@ void scanChunks(Audio *audio)
 
   if(!audio->data) terminate("Input file does not contain a data chunk.");
   if(!audio->fmt) terminate("Input file does not contain a fmt chunk.");
-  if((audio->fmt->compression) != 1) printf("WARNING: Input is not a PCM WAVE file. Editing features may not work as expected.\n");
+  if((audio->fmt->compression) != 1) printf("WARNING: Input is not a PCM WAVE file. Edit features may not work as expected.\n");
 }
 
 void loadAudio(Audio *audio)
@@ -72,23 +67,23 @@ void loadAudio(Audio *audio)
   if(!input) terminate("Could not open input file.");
 
   audio->bufferLength = audioLength(input);
-  audio->buffer = (unsigned char *) malloc(audio->bufferLength + 1);
+  audio->buffer = (char *) malloc(audio->bufferLength + 1);
   if(!audio->buffer) terminate("Could not allocate enough memory for the input file.");
-  if(!fread(audio->buffer, audio->bufferLength, sizeof(unsigned char), input)) terminate("Unable to read input file.");
+  if(!fread(audio->buffer, audio->bufferLength, sizeof(char), input)) terminate("Unable to read input file.");
 
   fclose(input);
   
   scanChunks(audio);
   
-  printf("'%s' is OK.\n", audio->input);
+  printf("Input '%s' is OK.\n", audio->input);
 }
 
-/*Extension - reverse audio*/
 void reverseAudio(Audio *audio)
 {
   int forwards = 0;
   int backwards = audio->data->size;
-  unsigned char temp;
+  char temp;
+  char *data = (char *)(&audio->data->data);
   
   assert(audio);
 
@@ -96,27 +91,64 @@ void reverseAudio(Audio *audio)
   
   while(forwards < backwards)
   {
-    temp = *(audio->data->data + backwards);
-    *(audio->data->data + backwards) = *(audio->data->data + forwards);
-    *(audio->data->data + forwards) = temp;
+    temp = *(data + backwards);
+    *(data + backwards) = *(data + forwards);
+    *(data + forwards) = temp;
     
     backwards--;
     forwards++;
   }
 }
 
+void amplifyAudio(Audio *audio, Edit *edit)
+{
+  int samples;
+  int i = 0;
+  int new;
+  int max;
+  int min;
+  int16_t *start;
+  
+  assert(audio && edit);
+  
+  if(edit->amplification <= 0.0f) terminate("Amplification factor should be more than 0.");
+
+  //will only handle 16 bit samples
+  if(audio->fmt->bitsPerSample != 16)
+  {
+    printf("Unable to amplify audio with a sample length of %d bits.\n", audio->fmt->bitsPerSample);
+    return;
+  }
+  
+  printf("Amplifying audio by %.2f...\n", edit->amplification);
+  
+  start = (int16_t *) (&audio->data->data);
+  samples = (int) (audio->data->size / sizeof(int16_t));
+    
+  while(i < samples)
+  {
+    new = (int) (*(start + i) * edit->amplification);
+    if(new > INT16_MAX) *(start + i) = INT16_MAX;
+    else if(new < INT16_MIN) *(start + i) = INT16_MIN;
+    else *(start + i) = new;
+    i++;
+  }
+}
+
 void trimAudio(Audio *audio, Edit *edit)
 {
-  /*Multiplying by block align to handle removing data from multiple channels.*/
-  unsigned int tbLength = edit->tb * audio->fmt->blockAlign;
-  unsigned int teLength = edit->te * audio->fmt->blockAlign;
+  //Multiplying by block align to handle removing data from multiple channels.
+  //Multiplying by 2 since block align measured in bytes (in this case 2 chars per byte)
+  unsigned int tbLength = edit->tb * audio->fmt->blockAlign * 2;
+  unsigned int teLength = edit->te * audio->fmt->blockAlign * 2;
+  
   unsigned int removed = tbLength + teLength;
   int total = audio->data->size - removed;
 
   if(total <= 0) terminate("Too many samples were specified.");
   
-  memcpy((unsigned char *)&audio->data->data, (unsigned char *)&audio->data->data + tbLength, total);
-  memcpy((unsigned char *)&audio->data->data + total, (unsigned char *)&audio->data->data + total, (audio->buffer + audio->bufferLength) - ((unsigned char *)&audio->data->data + total));
+  memcpy((char *)&audio->data->data, (char *)&audio->data->data + tbLength, total);
+  memcpy((char *)&audio->data->data + total, (char *)&audio->data->data + total, (audio->buffer + audio->bufferLength) - ((char *)&audio->data->data + total));
   
   /*Ensuring synthetic chunk sizes are correct.*/
   audio->riff->size -= removed;
@@ -134,7 +166,7 @@ void saveAudio(Audio *audio, Edit *edit)
   output = fopen(edit->output, "wb");
   if(!output) terminate("Unable to create or overwrite output file.");
   
-  writeCount = fwrite(audio->buffer, sizeof(unsigned char), audio->bufferLength, output);
+  writeCount = fwrite(audio->buffer, sizeof(char), audio->bufferLength, output);
   if(!writeCount) terminate("Could not write data to output file.");
   
   fclose(output);
@@ -147,6 +179,7 @@ void performEdit(Audio *audio, Edit *edit)
   loadAudio(audio);
   if(!edit->output) return;
   trimAudio(audio, edit);
+  if(edit->amplification) amplifyAudio(audio, edit);
   if(edit->reverse) reverseAudio(audio);
   saveAudio(audio, edit);
 }
