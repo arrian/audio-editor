@@ -29,14 +29,14 @@ unsigned long audioLength(FILE *input)
 void scanChunks(Audio *audio)
 {
   audio->riff = (Chunk *) audio->buffer;
-  char *riffData = (char *) &(audio->riff->data);
+  char *riffData = &audio->riff->data;
   Chunk *chunkIter = (Chunk *) (riffData + CHUNK_DESCRIPTOR_LENGTH);//adding CDL to skip WAVE label
   
   assert(audio);
   
   if(!isChunk(audio->riff, "RIFF")) terminate("Input file is not a WAVE audio file.");//should also check WAVE label
   
-  while((char *)&chunkIter->data < (char *)(audio->buffer + audio->bufferLength))
+  while(&chunkIter->data < (char *)(audio->buffer + audio->bufferLength))
   {
     if(isChunk(chunkIter, "fmt "))
     {
@@ -48,7 +48,7 @@ void scanChunks(Audio *audio)
     
     if(chunkIter->size <= 0) terminate("Unusual chunk size.");
     
-    char *dataStart = (char *) &chunkIter->data;
+    char *dataStart = &chunkIter->data;
     unsigned int size = chunkIter->size;
     
     chunkIter = (Chunk *) (dataStart + size);
@@ -83,7 +83,7 @@ void reverseAudio(Audio *audio)
   int forwards = 0;
   int backwards = audio->data->size;
   char temp;
-  char *data = (char *)(&audio->data->data);
+  char *data = &audio->data->data;
   
   assert(audio);
 
@@ -147,8 +147,8 @@ void trimAudio(Audio *audio, Edit *edit)
 
   if(total <= 0) terminate("Too many samples were specified.");
   
-  memcpy((char *)&audio->data->data, (char *)&audio->data->data + tbLength, total);
-  memcpy((char *)&audio->data->data + total, (char *)&audio->data->data + total, (audio->buffer + audio->bufferLength) - ((char *)&audio->data->data + total));
+  memcpy(&audio->data->data, &audio->data->data + tbLength, total);  
+  memcpy(&audio->data->data + total, &audio->data->data + total + tbLength, (audio->buffer + audio->bufferLength) - (&audio->data->data + total));
   
   /*Ensuring synthetic chunk sizes are correct.*/
   audio->riff->size -= removed;

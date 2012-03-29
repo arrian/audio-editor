@@ -15,7 +15,7 @@ typedef struct
 {
   char label[CHUNK_DESCRIPTOR_LENGTH];
   unsigned int size;
-  char *data;
+  char data;
 } Chunk;
 
 /*WAVE format chunk*/
