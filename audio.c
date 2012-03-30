@@ -147,9 +147,6 @@ void trimAudio(Audio *audio, Edit *edit)
 
   if(total <= 0) terminate("Too many samples were specified.");
 
-  //if(tbLength > 0) memcpy(&audio->data->data, &audio->data->data + tbLength, total);  
-  //if(teLength > 0) memcpy(&audio->data->data + total, &audio->data->data + total + tbLength, (audio->buffer + audio->bufferLength) - (&audio->data->data + total));
-
   if(tbLength > 0) memmove(&audio->data->data, &audio->data->data + tbLength, total);
   if(teLength > 0) memmove(&audio->data->data + total, &audio->data->data + total + removed, audio->bufferLength - (removed + total));
   
